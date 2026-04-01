@@ -30,7 +30,7 @@ using AI-powered tone matching with web search for per-recording
 gear research.
 
 %prep
-%setup -q
+%setup -q -n tnqr-%{version}
 
 %install
 mkdir -p %{buildroot}/usr/local/bin
