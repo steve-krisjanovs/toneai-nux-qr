@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            binary: tnqr-linux-x64
+            bun_target: bun-linux-x64
+          - os: windows-latest
+            target: win-x64
+            binary: tnqr-win-x64.exe
+            bun_target: bun-windows-x64
+          - os: macos-latest
+            target: mac-arm64
+            binary: tnqr-mac-arm64
+            bun_target: bun-darwin-arm64
+          - os: macos-latest
+            target: mac-x64
+            binary: tnqr-mac-x64
+            bun_target: bun-darwin-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binary
+        run: bun build src/cli.ts --compile --target=${{ matrix.bun_target }} --outfile ${{ matrix.binary }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ matrix.binary }}
+
+  build-installers:
+    name: Build installers
+    needs: build-binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+          - os: ubuntu-latest
+            target: deb
+          - os: ubuntu-latest
+            target: rpm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      # ── Windows — Inno Setup ──────────────────────────────────────────────
+      - name: Download Windows binary
+        if: matrix.target == 'win'
+        uses: actions/download-artifact@v4
+        with:
+          name: tnqr-win-x64.exe
+
+      - name: Build Windows installer
+        if: matrix.target == 'win'
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+          iscc /DMyAppVersion="${{ steps.version.outputs.VERSION }}" installers\windows\setup.iss
+
+      - name: Upload Windows installer
+        if: matrix.target == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnqr-${{ steps.version.outputs.VERSION }}-windows-setup
+          path: installers/windows/Output/*.exe
+
+      # ── macOS — unsigned pkg ──────────────────────────────────────────────
+      - name: Download macOS binaries
+        if: matrix.target == 'mac'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tnqr-mac-*
+          merge-multiple: true
+
+      - name: Build macOS pkg
+        if: matrix.target == 'mac'
+        run: |
+          chmod +x tnqr-mac-arm64 tnqr-mac-x64
+          bash installers/macos/build-pkg.sh ${{ steps.version.outputs.VERSION }}
+
+      - name: Upload macOS pkg
+        if: matrix.target == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnqr-${{ steps.version.outputs.VERSION }}-macos
+          path: installers/macos/dist/*.pkg
+
+      # ── Linux .deb ────────────────────────────────────────────────────────
+      - name: Download Linux binary
+        if: matrix.target == 'deb'
+        uses: actions/download-artifact@v4
+        with:
+          name: tnqr-linux-x64
+
+      - name: Build .deb package
+        if: matrix.target == 'deb'
+        run: bash installers/linux/build-deb.sh ${{ steps.version.outputs.VERSION }}
+
+      - name: Upload .deb package
+        if: matrix.target == 'deb'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnqr-${{ steps.version.outputs.VERSION }}-linux-deb
+          path: installers/linux/dist/*.deb
+
+      # ── Linux .rpm ────────────────────────────────────────────────────────
+      - name: Download Linux binary (rpm)
+        if: matrix.target == 'rpm'
+        uses: actions/download-artifact@v4
+        with:
+          name: tnqr-linux-x64
+
+      - name: Install rpm tools
+        if: matrix.target == 'rpm'
+        run: sudo apt-get install -y rpm
+
+      - name: Build .rpm package
+        if: matrix.target == 'rpm'
+        run: bash installers/linux/build-rpm.sh ${{ steps.version.outputs.VERSION }}
+
+      - name: Upload .rpm package
+        if: matrix.target == 'rpm'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnqr-${{ steps.version.outputs.VERSION }}-linux-rpm
+          path: installers/linux/dist/*.rpm
+
+  release:
+    name: Create GitHub Release
+    needs: build-installers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: toneai-nux-qr v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Install
+
+            **Windows:** Download and run `tnqr-setup.exe`
+
+            **macOS:** Download `tnqr-macos.pkg`
+            > First time: right-click → Open to bypass Gatekeeper, or install via Homebrew:
+            > ```
+            > brew tap steve-krisjanovs/tools
+            > brew install toneai-nux-qr
+            > ```
+
+            **Linux (Debian/Ubuntu):** `sudo dpkg -i tnqr_${{ steps.version.outputs.VERSION }}_amd64.deb`
+
+            **Linux (Fedora/RHEL):** `sudo rpm -i tnqr-${{ steps.version.outputs.VERSION }}-1.x86_64.rpm`
+
+            **npm/Node:** `npm install -g toneai-nux-qr`
+
+            **Bun:** `bun install -g toneai-nux-qr`
+
+            ---
+            On first run, `tnqr` will walk you through setting up your Anthropic API key.
+          files: release-assets/**/*
+          draft: false
+          prerelease: false

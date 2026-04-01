@@ -1,0 +1,6 @@
+src/
+output/
+.env
+.env.example
+tsconfig.json
+*.tgz

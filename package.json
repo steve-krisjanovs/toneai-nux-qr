@@ -1,0 +1,52 @@
+{
+  "name": "toneai-nux-qr",
+  "version": "1.0.0",
+  "description": "AI-generated NUX MightyAmp QR code tone presets for any album, song, or artist",
+  "keywords": [
+    "nux",
+    "mightyamp",
+    "guitar",
+    "qr",
+    "tone",
+    "preset",
+    "ai"
+  ],
+  "author": "steve-krisjanovs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steve-krisjanovs/toneai-nux-qr.git"
+  },
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "bin": {
+    "tnqr": "dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:binary": "bun build src/cli.ts --compile --outfile tnqr",
+    "build:binary:win": "bun build src/cli.ts --compile --target=bun-windows-x64 --outfile tnqr.exe",
+    "build:binary:mac-arm": "bun build src/cli.ts --compile --target=bun-darwin-arm64 --outfile tnqr-mac-arm64",
+    "build:binary:mac-x64": "bun build src/cli.ts --compile --target=bun-darwin-x64 --outfile tnqr-mac-x64",
+    "build:binary:linux": "bun build src/cli.ts --compile --target=bun-linux-x64 --outfile tnqr-linux-x64",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@napi-rs/canvas": "^0.1.97",
+    "@types/jszip": "^3.4.0",
+    "jszip": "^3.10.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5"
+  }
+}
