@@ -77,6 +77,103 @@ export function parseLog(logPath: string): ParsedLog {
   return { meta, tracks, summary }
 }
 
+export interface RunInfo {
+  index: number
+  path: string
+  filename: string
+  query: string
+  context: string
+  artist: string
+  date: string
+  totalTracks: number
+  succeeded: number
+  failed: number
+  status: 'success' | 'partial' | 'failed' | 'unknown'
+}
+
+export function listRuns(limit: number = 10): RunInfo[] {
+  if (!fs.existsSync(LOGS_DIR)) return []
+  const files = fs.readdirSync(LOGS_DIR)
+    .filter(f => f.endsWith('.jsonl'))
+    .sort()
+    .reverse()
+    .slice(0, limit)
+
+  return files.map((filename, i) => {
+    const logPath = path.join(LOGS_DIR, filename)
+    try {
+      const parsed = parseLog(logPath)
+      const succeeded = parsed.tracks.filter(t => t.status === 'success').length
+      const failed = parsed.tracks.filter(t => t.status === 'failed').length
+      const status = failed === 0 ? 'success' : succeeded === 0 ? 'failed' : 'partial'
+      return {
+        index: i + 1,
+        path: logPath,
+        filename,
+        query: parsed.meta.query,
+        context: parsed.meta.context,
+        artist: parsed.meta.artist,
+        date: parsed.meta.startedAt.slice(0, 16).replace('T', ' '),
+        totalTracks: parsed.meta.totalTracks,
+        succeeded,
+        failed,
+        status,
+      }
+    } catch {
+      return {
+        index: i + 1,
+        path: logPath,
+        filename,
+        query: '?',
+        context: '?',
+        artist: '?',
+        date: '?',
+        totalTracks: 0,
+        succeeded: 0,
+        failed: 0,
+        status: 'unknown' as const,
+      }
+    }
+  })
+}
+
+export function resolveRunPath(arg: string | undefined): string[] {
+  const runs = listRuns(100)
+  if (runs.length === 0) {
+    console.error('Error: no runs found in ~/.toneai-nux-qr/logs/')
+    process.exit(1)
+  }
+
+  // No arg = most recent with failures
+  if (!arg) {
+    const withFailures = runs.find(r => r.failed > 0)
+    if (!withFailures) {
+      console.log('\n✅ No failed runs to resume.\n')
+      process.exit(0)
+    }
+    return [withFailures.path]
+  }
+
+  // "all" = every run with failures
+  if (arg === 'all') {
+    const withFailures = runs.filter(r => r.failed > 0)
+    if (withFailures.length === 0) {
+      console.log('\n✅ No failed runs to resume.\n')
+      process.exit(0)
+    }
+    return withFailures.map(r => r.path)
+  }
+
+  // Number = Nth most recent
+  const n = parseInt(arg, 10)
+  if (!isNaN(n) && n >= 1 && n <= runs.length) {
+    return [runs[n - 1].path]
+  }
+
+  console.error(`Error: invalid resume target "${arg}". Use a number (1-${runs.length}), "all", or omit for most recent.`)
+  process.exit(1)
+}
+
 export class RunLogger {
   private logPath: string
   private format: LogFormat

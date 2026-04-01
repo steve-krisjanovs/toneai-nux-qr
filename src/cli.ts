@@ -10,7 +10,7 @@ import { decorateQR } from './decorate.js'
 import { resolveIntent, generateToneForSong } from './ai.js'
 import { resolveApiKey } from './config.js'
 import { ProgressDisplay } from './progress.js'
-import { RunLogger, parseLog } from './logger.js'
+import { RunLogger, parseLog, listRuns, resolveRunPath } from './logger.js'
 import type { LogFormat } from './logger.js'
 import type { DeviceType } from './nux.js'
 
@@ -145,8 +145,11 @@ Options:
   -y, --yes              Skip confirmation prompt                        $TNQR_YES
   -s, --silent           Suppress progress display                      $TNQR_SILENT
   -n, --dry-run          Resolve and show tracklist without generating
-  -r, --resume <log>     Resume a failed run using its log file — retries only failed tracks
-                         e.g. -r ~/.toneai-nux-qr/logs/2026-03-31_14-22-led-zeppelin.jsonl
+  -r, --resume [N|all]   Resume failed tracks from a previous run
+                         -r         most recent run with failures
+                         -r 3       third most recent run
+                         -r all     all runs with failures
+      --list-runs [N]    Show recent runs (default: 10)
   -L, --log <path>       Log file path (default: ~/.toneai-nux-qr/logs/<timestamp>.jsonl) $TNQR_LOG
       --log-format       Log format: jsonl or text (default: jsonl)    $TNQR_LOG_FORMAT
   -F, --folder-format    Folder name format (default: {artist}-{album})  $TNQR_FOLDER_FORMAT
@@ -241,6 +244,26 @@ async function main(): Promise<void> {
     process.exit(0)
   }
 
+  // --list-runs [N] — show recent runs
+  const listRunsIdx = args.findIndex(a => a === '--list-runs')
+  if (listRunsIdx !== -1) {
+    const limitArg = args[listRunsIdx + 1]
+    const limit = limitArg && !limitArg.startsWith('-') ? parseInt(limitArg, 10) || 10 : 10
+    const runs = listRuns(limit)
+    if (runs.length === 0) {
+      console.log('\nNo runs found in ~/.toneai-nux-qr/logs/\n')
+      process.exit(0)
+    }
+    console.log('\nRecent runs:\n')
+    const statusIcon = { success: '✅', partial: '⚠️', failed: '❌', unknown: '?' }
+    for (const r of runs) {
+      const failStr = r.failed > 0 ? ` (${r.failed} failed)` : ''
+      console.log(`  ${String(r.index).padStart(2)}  ${statusIcon[r.status]}  ${r.date}  ${r.context}  [${r.succeeded}/${r.totalTracks}]${failStr}`)
+    }
+    console.log(`\nResume with: tnqr -r <number>  |  tnqr -r  (most recent failed)  |  tnqr -r all\n`)
+    process.exit(0)
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function parseStr(long: string, short: string, envVar: string): string | undefined {
     const idx = args.findIndex(a => a === long || a === short)
@@ -298,7 +321,21 @@ async function main(): Promise<void> {
   const ceiling     = parseInt_('--ceiling',       '-l', 'TNQR_CEILING',      DEFAULT_CEILING,     HARD_CEILING)
   const createZip   = parseBool('--zip',           '-z', 'TNQR_ZIP')
   const dryRun      = parseBoolNoEnv('--dry-run',  '-n')
-  const retryDir    = parseStrNoEnv('--resume',     '-r')
+
+  // --resume / -r: optional value (no arg = most recent failed, number = Nth, "all" = all failed)
+  let resumeFlag = false
+  let resumeArg: string | undefined
+  const resumeIdx = args.findIndex(a => a === '--resume' || a === '-r')
+  if (resumeIdx !== -1) {
+    resumeFlag = true
+    const next = args[resumeIdx + 1]
+    if (next && !next.startsWith('-')) {
+      resumeArg = next
+      args.splice(resumeIdx, 2)
+    } else {
+      args.splice(resumeIdx, 1)
+    }
+  }
   const logPath     = parseStr('--log',             '-L', 'TNQR_LOG')
   const logFormatRaw = parseStr('--log-format',     '--log-format', 'TNQR_LOG_FORMAT') ?? 'jsonl'
   const logFormat: LogFormat = logFormatRaw === 'text' ? 'text' : 'jsonl'
@@ -317,7 +354,7 @@ async function main(): Promise<void> {
   // Query priority: --query/-q > positional arg > TNQR_QUERY env var
   const query = query_flag || positionalQuery
 
-  if (!query && !retryDir) {
+  if (!query && !resumeFlag) {
     console.error('Error: query is required. Use -q/--query or pass as first positional argument.\n')
     printHelp()
     process.exit(1)
@@ -349,110 +386,105 @@ async function main(): Promise<void> {
   const client = new Anthropic({ apiKey })
 
   // ── Resume mode — restore everything from log file ────────────────────────
-  if (retryDir) {
-    if (!fs.existsSync(retryDir)) {
-      console.error(`Error: log file not found: ${retryDir}`)
-      process.exit(1)
-    }
-    if (!retryDir.endsWith('.jsonl')) {
-      console.error(`Error: --resume requires a .jsonl log file (text logs cannot be resumed).`)
-      process.exit(1)
-    }
+  if (resumeFlag) {
+    const logPaths = resolveRunPath(resumeArg)
 
-    let parsed: Awaited<ReturnType<typeof parseLog>>
-    try {
-      parsed = parseLog(retryDir)
-    } catch (err) {
-      console.error(`Error parsing log file: ${err instanceof Error ? err.message : err}`)
-      process.exit(1)
-    }
-
-    const { meta, tracks: logTracks, summary } = parsed
-    const failedTracks = logTracks.filter(t => t.status === 'failed')
-
-    if (failedTracks.length === 0) {
-      console.log(`\n✅ No failed tracks in log — nothing to resume.\n`)
-      process.exit(0)
-    }
-
-    console.log(`\n🔄 Resuming: ${meta.context}`)
-    console.log(`   ${failedTracks.length} failed track${failedTracks.length === 1 ? '' : 's'} to retry: ${failedTracks.map(t => t.title).join(', ')}`)
-    console.log(`   Output dir: ${summary?.outputDir ?? 'unknown'}`)
-    console.log()
-
-    const resumeOutputDir = summary?.outputDir ?? path.join(outputBase, slugify(meta.context).slice(0, 60))
-    const resumeDevices = meta.devices as DeviceType[]
-    const resumeInstrument = (meta.instrument ?? 'guitar') as 'guitar' | 'bass'
-    const resumeToneModel = toneModel !== 'claude-sonnet-4-6' ? toneModel : meta.toneModel
-    const resumePickup = pickup ?? meta.pickup
-    const runStart = Date.now()
-
-    const resumeLogger = new RunLogger(undefined, logFormat, {
-      ...meta,
-      totalTracks: failedTracks.length,
-      startedAt: new Date().toISOString(),
-    })
-
-    for (const device of resumeDevices) {
-      const deviceInfo = DEVICES[device as DeviceType]
-      if (!deviceInfo) continue
-      if (!silent) console.log(`\n🎸 Retrying for: ${deviceInfo.displayName} (${device})`)
-
-      const outDir = path.join(resumeOutputDir, device)
-      fs.mkdirSync(outDir, { recursive: true })
-
-      const progress = new ProgressDisplay(failedTracks.map(t => t.title), silent)
-      progress.start()
-
-      const chunks: typeof failedTracks[] = []
-      for (let i = 0; i < failedTracks.length; i += concurrency) {
-        chunks.push(failedTracks.slice(i, i + concurrency))
+    for (const logFile of logPaths) {
+      let parsed: Awaited<ReturnType<typeof parseLog>>
+      try {
+        parsed = parseLog(logFile)
+      } catch (err) {
+        console.error(`Error parsing log file: ${err instanceof Error ? err.message : err}`)
+        continue
       }
 
-      let trackIndex = 0
-      for (const chunk of chunks) {
-        await Promise.allSettled(
-          chunk.map(async (t, chunkIdx) => {
-            const i = trackIndex + chunkIdx
-            const trackNum = meta.totalTracks === 1 ? '' : pad(t.trackNumber, meta.totalTracks)
-            const resumeAlbum = extractAlbum(meta.context)
-            const trackStart = Date.now()
-            const trackStarted = new Date().toISOString()
+      const { meta, tracks: logTracks, summary } = parsed
+      const failedTracks = logTracks.filter(t => t.status === 'failed')
 
-            progress.setQuerying(i)
-            try {
-              const { params, promptSent, rawToolInput, nudgeRequired, nudgeElapsedMs } = await generateToneForSong(
-                client, t.title, meta.artist, meta.context,
-                device as DeviceType, resumePickup, t.note, resumeToneModel, resumeInstrument
-              )
-              const fileVars = { artist: meta.artist, album: resumeAlbum, track: trackNum, song: t.title, preset: params.preset_name, device: device as string }
-              const filename = `${formatTemplate(fileFormat, fileVars)}.png`
-              const outPath = path.join(outDir, filename)
-              const qrRaw = await generateQRPng(params)
-              const { buildQRString } = await import('./encoder.js')
-              const qrString = buildQRString(params)
-              const png = await decorateQR(qrRaw, meta.artist, t.title, device, deviceInfo.displayName)
-              fs.writeFileSync(outPath, png)
-              const elapsed = Date.now() - trackStart
-              progress.setDone(i, params.preset_name, elapsed)
-              resumeLogger.logTrack({ trackNumber: t.trackNumber, title: t.title, note: t.note, device, status: 'success', presetName: params.preset_name, qrString, promptSent, rawToolInput, coercedParams: params, nudgeRequired, nudgeElapsedMs, elapsedMs: elapsed, startedAt: trackStarted, completedAt: new Date().toISOString() })
-            } catch (err) {
-              const elapsed = Date.now() - trackStart
-              const errMsg = err instanceof Error ? err.message : String(err)
-              progress.setFailed(i, errMsg, elapsed)
-              resumeLogger.logTrack({ trackNumber: t.trackNumber, title: t.title, note: t.note, device, status: 'failed', error: errMsg, elapsedMs: elapsed, startedAt: trackStarted, completedAt: new Date().toISOString() })
-            }
-          })
-        )
-        trackIndex += chunk.length
+      if (failedTracks.length === 0) {
+        console.log(`\n✅ No failed tracks in ${meta.context} — skipping.`)
+        continue
       }
-      progress.stop()
-    }
 
-    resumeLogger.flush({ succeeded: resumeLogger.trackCount('success'), failed: resumeLogger.trackCount('failed'), totalElapsedMs: Date.now() - runStart, outputDir: resumeOutputDir, completedAt: new Date().toISOString() })
-    if (!silent) {
-      console.log(`\n✅ Resume complete! Output in: ${resumeOutputDir}/`)
-      console.log(`   📋 Log saved: ${resumeLogger.path}\n`)
+      console.log(`\n🔄 Resuming: ${meta.context}`)
+      console.log(`   ${failedTracks.length} failed track${failedTracks.length === 1 ? '' : 's'} to retry: ${failedTracks.map(t => t.title).join(', ')}`)
+      console.log(`   Output dir: ${summary?.outputDir ?? 'unknown'}`)
+      console.log()
+
+      const resumeOutputDir = summary?.outputDir ?? path.join(outputBase, slugify(meta.context).slice(0, 60))
+      const resumeDevices = meta.devices as DeviceType[]
+      const resumeInstrument = (meta.instrument ?? 'guitar') as 'guitar' | 'bass'
+      const resumeToneModel = toneModel !== 'claude-sonnet-4-6' ? toneModel : meta.toneModel
+      const resumePickup = pickup ?? meta.pickup
+      const runStart = Date.now()
+
+      const resumeLogger = new RunLogger(undefined, logFormat, {
+        ...meta,
+        totalTracks: failedTracks.length,
+        startedAt: new Date().toISOString(),
+      })
+
+      for (const device of resumeDevices) {
+        const deviceInfo = DEVICES[device as DeviceType]
+        if (!deviceInfo) continue
+        if (!silent) console.log(`\n🎸 Retrying for: ${deviceInfo.displayName} (${device})`)
+
+        const outDir = path.join(resumeOutputDir, device)
+        fs.mkdirSync(outDir, { recursive: true })
+
+        const progress = new ProgressDisplay(failedTracks.map(t => t.title), silent)
+        progress.start()
+
+        const chunks: typeof failedTracks[] = []
+        for (let i = 0; i < failedTracks.length; i += concurrency) {
+          chunks.push(failedTracks.slice(i, i + concurrency))
+        }
+
+        let trackIndex = 0
+        for (const chunk of chunks) {
+          await Promise.allSettled(
+            chunk.map(async (t, chunkIdx) => {
+              const i = trackIndex + chunkIdx
+              const trackNum = meta.totalTracks === 1 ? '' : pad(t.trackNumber, meta.totalTracks)
+              const resumeAlbum = extractAlbum(meta.context)
+              const trackStart = Date.now()
+              const trackStarted = new Date().toISOString()
+
+              progress.setQuerying(i)
+              try {
+                const { params, promptSent, rawToolInput, nudgeRequired, nudgeElapsedMs } = await generateToneForSong(
+                  client, t.title, meta.artist, meta.context,
+                  device as DeviceType, resumePickup, t.note, resumeToneModel, resumeInstrument
+                )
+                const fileVars = { artist: meta.artist, album: resumeAlbum, track: trackNum, song: t.title, preset: params.preset_name, device: device as string }
+                const filename = `${formatTemplate(fileFormat, fileVars)}.png`
+                const outPath = path.join(outDir, filename)
+                const qrRaw = await generateQRPng(params)
+                const { buildQRString } = await import('./encoder.js')
+                const qrString = buildQRString(params)
+                const png = await decorateQR(qrRaw, meta.artist, t.title, device, deviceInfo.displayName)
+                fs.writeFileSync(outPath, png)
+                const elapsed = Date.now() - trackStart
+                progress.setDone(i, params.preset_name, elapsed)
+                resumeLogger.logTrack({ trackNumber: t.trackNumber, title: t.title, note: t.note, device, status: 'success', presetName: params.preset_name, qrString, promptSent, rawToolInput, coercedParams: params, nudgeRequired, nudgeElapsedMs, elapsedMs: elapsed, startedAt: trackStarted, completedAt: new Date().toISOString() })
+              } catch (err) {
+                const elapsed = Date.now() - trackStart
+                const errMsg = err instanceof Error ? err.message : String(err)
+                progress.setFailed(i, errMsg, elapsed)
+                resumeLogger.logTrack({ trackNumber: t.trackNumber, title: t.title, note: t.note, device, status: 'failed', error: errMsg, elapsedMs: elapsed, startedAt: trackStarted, completedAt: new Date().toISOString() })
+              }
+            })
+          )
+          trackIndex += chunk.length
+        }
+        progress.stop()
+      }
+
+      resumeLogger.flush({ succeeded: resumeLogger.trackCount('success'), failed: resumeLogger.trackCount('failed'), totalElapsedMs: Date.now() - runStart, outputDir: resumeOutputDir, completedAt: new Date().toISOString() })
+      if (!silent) {
+        console.log(`\n✅ Resume complete! Output in: ${resumeOutputDir}/`)
+        console.log(`   📋 Log saved: ${resumeLogger.path}\n`)
+      }
     }
     process.exit(0)
   }
