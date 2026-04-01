@@ -159,6 +159,7 @@ Options:
                          Tokens: {artist} {album} {track} {song} {preset} {device}
                          Empty tokens are dropped cleanly (no double dashes)
       --list-devices     List all supported devices and exit
+  -v, --version          Show version and exit
   -m, --model <model>    Tone generation model                          $TNQR_MODEL
                          (default: claude-sonnet-4-6)
   -i, --intent-model     Intent resolution model                        $TNQR_INTENT_MODEL
@@ -206,6 +207,11 @@ async function main(): Promise<void> {
 
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     printHelp()
+    process.exit(0)
+  }
+
+  if (args.includes('--version') || args.includes('-v')) {
+    console.log(`toneai-nux-qr v${pkg.version}`)
     process.exit(0)
   }
 

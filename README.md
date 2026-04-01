@@ -113,6 +113,7 @@ tnqr --list-devices
 | `-i` | `--intent-model` | `TNQR_INTENT_MODEL` | Intent resolution model | `claude-haiku-4-5-20251001` |
 | — | `--list-devices` | — | List all supported devices and exit | — |
 | — | `--list-runs [N]` | — | Show recent runs (default: 10) | — |
+| `-v` | `--version` | — | Show version and exit | — |
 | `-h` | `--help` | — | Show help | — |
 
 ### `--pickup` examples
