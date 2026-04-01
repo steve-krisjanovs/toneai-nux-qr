@@ -83,7 +83,26 @@ function slugify(str: string): string {
 }
 
 function pad(n: number, total: number): string {
-  return String(n).padStart(String(total).length, '0')
+  return String(n).padStart(Math.max(2, String(total).length), '0')
+}
+
+const DEFAULT_FOLDER_FORMAT = '{artist}-{album}'
+const DEFAULT_FILE_FORMAT = '{track}-{song}'
+
+function formatTemplate(template: string, vars: Record<string, string>): string {
+  const result = template.replace(/\{(\w+)\}/g, (_, key) => {
+    const val = vars[key]
+    return val !== undefined ? slugify(val) : ''
+  })
+  // Clean up: collapse multiple dashes/slashes from empty tokens, trim edges
+  return result.replace(/-{2,}/g, '-').replace(/\/{2,}/g, '/').replace(/(^[-/]+|[-/]+$)/g, '').replace(/\/-/g, '/').replace(/-\//g, '/')
+}
+
+function extractAlbum(context: string): string {
+  // context is like "Led Zeppelin — Physical Graffiti (1975 double album)"
+  const afterDash = context.split('—')[1]?.trim()
+  if (!afterDash) return context
+  return afterDash.split('(')[0].trim()
 }
 
 function printHelp(): void {
@@ -130,6 +149,11 @@ Options:
                          e.g. -r ~/.toneai-nux-qr/logs/2026-03-31_14-22-led-zeppelin.jsonl
   -L, --log <path>       Log file path (default: ~/.toneai-nux-qr/logs/<timestamp>.jsonl) $TNQR_LOG
       --log-format       Log format: jsonl or text (default: jsonl)    $TNQR_LOG_FORMAT
+  -F, --folder-format    Folder name format (default: {artist}-{album})  $TNQR_FOLDER_FORMAT
+                         Supports / for subfolders, e.g. {artist}/{album}
+  -f, --file-format      File name format (default: {track}-{song})     $TNQR_FILE_FORMAT
+                         Tokens: {artist} {album} {track} {song} {preset} {device}
+                         Empty tokens are dropped cleanly (no double dashes)
       --list-devices     List all supported devices and exit
   -m, --model <model>    Tone generation model                          $TNQR_MODEL
                          (default: claude-sonnet-4-6)
@@ -157,6 +181,8 @@ Environment Variables:
   TNQR_INTENT_MODEL          Intent resolution model (same as -i, default: claude-haiku-4-5-20251001)
   TNQR_LOG                   Log file path (same as -L, default: ~/.toneai-nux-qr/logs/)
   TNQR_LOG_FORMAT            Log format: jsonl or text (same as --log-format, default: jsonl)
+  TNQR_FOLDER_FORMAT         Folder name format (same as --folder-format)
+  TNQR_FILE_FORMAT           File name format (same as --file-format)
 
   Tip: Set your frequently-used options in ~/.bashrc, ~/.zshrc, or ~/.config/fish/config.fish
   e.g. export TNQR_ANTHROPIC_API_KEY=sk-ant-...
@@ -167,7 +193,7 @@ Config file: ~/.toneai-nux-qr/config.json (created on first run, stores API key)
 Log files:   ~/.toneai-nux-qr/logs/ (one per run)
 
 Output:
-  output/<artist-album>/<device>/<track>.png
+  output/<folder-format>/<device>/<file-format>.png
 `)
 }
 
@@ -282,6 +308,8 @@ async function main(): Promise<void> {
   const apiKeyArg   = parseStr('--api-key',        '-k', 'TNQR_ANTHROPIC_API_KEY')
   const toneModel   = parseStr('--model',          '-m', 'TNQR_MODEL')     ?? 'claude-sonnet-4-6'
   const intentModel = parseStr('--intent-model',   '-i', 'TNQR_INTENT_MODEL') ?? 'claude-haiku-4-5-20251001'
+  const folderFormat = parseStr('--folder-format', '-F', 'TNQR_FOLDER_FORMAT') ?? DEFAULT_FOLDER_FORMAT
+  const fileFormat   = parseStr('--file-format',   '-f', 'TNQR_FILE_FORMAT')   ?? DEFAULT_FILE_FORMAT
 
   // ── Positional args ───────────────────────────────────────────────────────
   const [positionalQuery, positionalDevice] = args
@@ -386,7 +414,8 @@ async function main(): Promise<void> {
         await Promise.allSettled(
           chunk.map(async (t, chunkIdx) => {
             const i = trackIndex + chunkIdx
-            const trackSlug = `${pad(t.trackNumber, meta.totalTracks)}-${slugify(t.title)}`
+            const trackNum = meta.totalTracks === 1 ? '' : pad(t.trackNumber, meta.totalTracks)
+            const resumeAlbum = extractAlbum(meta.context)
             const trackStart = Date.now()
             const trackStarted = new Date().toISOString()
 
@@ -396,8 +425,8 @@ async function main(): Promise<void> {
                 client, t.title, meta.artist, meta.context,
                 device as DeviceType, resumePickup, t.note, resumeToneModel, resumeInstrument
               )
-              const presetSlug = slugify(params.preset_name).slice(0, 30).replace(/-+$/, '')
-              const filename = `${trackSlug}-${presetSlug}.png`
+              const fileVars = { artist: meta.artist, album: resumeAlbum, track: trackNum, song: t.title, preset: params.preset_name, device: device as string }
+              const filename = `${formatTemplate(fileFormat, fileVars)}.png`
               const outPath = path.join(outDir, filename)
               const qrRaw = await generateQRPng(params)
               const { buildQRString } = await import('./encoder.js')
@@ -477,11 +506,10 @@ async function main(): Promise<void> {
 
   console.log()
 
-  // Build a clean slug: "artist - album/title" capped at 60 chars
-  const slugBase = tracks.length === 1
-    ? `${artist} ${tracks[0].title}`
-    : `${artist} ${context.split('—')[1]?.trim().split('(')[0].trim() || context}`
-  const contextSlug = slugify(slugBase).slice(0, 60).replace(/-+$/, '')
+  // Build folder path from format template
+  const album = extractAlbum(context)
+  const folderVars = { artist, album, device: devices[0] }
+  const contextSlug = formatTemplate(folderFormat, folderVars)
   const zip = createZip ? new JSZip() : null
   const runStart = Date.now()
 
@@ -508,11 +536,8 @@ async function main(): Promise<void> {
     aborted = true
     if (activeProgress) {
       activeProgress.stop()
-      const done = tracks.filter((_, i) => {
-        const outDir = path.join(outputBase, contextSlug, devices[0])
-        const prefix = tracks.length === 1 ? slugify(tracks[i].title) : `${pad(i + 1, tracks.length)}-${slugify(tracks[i].title)}`
-        return fs.existsSync(path.join(outDir, `${prefix}.png`))
-      }).length
+      const outDir = path.join(outputBase, contextSlug, devices[0])
+      const done = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter(f => f.endsWith('.png')).length : 0
       console.log(`\n⚠️  Cancelled. ${done}/${tracks.length} QR codes saved to: ${outputBase}/${contextSlug}/\n`)
     } else {
       console.log('\n⚠️  Cancelled.\n')
@@ -565,17 +590,15 @@ async function main(): Promise<void> {
           if (aborted) return
           const globalIdx = tracks.findIndex(t => t.title === title)
           const i = trackIndex + chunkIdx
-          // Filename: track number + track slug + preset name slug
-          const trackSlug = tracks.length === 1 ? slugify(title) : `${pad(globalIdx + 1, tracks.length)}-${slugify(title)}`
+          const trackNum = tracks.length === 1 ? '' : pad(globalIdx + 1, tracks.length)
           const trackStart = Date.now()
 
           progress.setQuerying(i)
           const trackStarted = new Date().toISOString()
           try {
             const { params, promptSent, rawToolInput, nudgeRequired, nudgeElapsedMs } = await generateToneForSong(client, title, artist, context, device, pickup, note, toneModel, instrument)
-            // Append slugified preset name to filename
-            const presetSlug = slugify(params.preset_name).slice(0, 30).replace(/-+$/, '')
-            const filename = `${trackSlug}-${presetSlug}.png`
+            const fileVars = { artist, album, track: trackNum, song: title, preset: params.preset_name, device }
+            const filename = `${formatTemplate(fileFormat, fileVars)}.png`
             const outPath = path.join(outDir, filename)
             const qrRaw = await generateQRPng(params)
             const { buildQRString } = await import('./encoder.js')
