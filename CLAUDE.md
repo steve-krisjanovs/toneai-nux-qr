@@ -73,6 +73,12 @@ Log format is JSONL — one JSON object per line:
 - `{ type: "track", ...TrackLog }` — per-track result with prompt sent, raw AI tool input, coerced params, QR string, nudge info, elapsed time
 - `{ type: "run_end", ...RunSummary }` — success/fail counts, output dir, total elapsed
 
+## Post-clone setup
+
+On a fresh machine after cloning, remind the user to:
+1. Set the API key: `tnqr set-key <key>` — the key is stored on the MacBook Air in `~/.toneai-nux-qr/config.json`
+2. Set the default output dir: add `export TNQR_OUTPUT=~/Documents/tnqr` (or equivalent) to the shell profile (`~/.zshrc`, `~/.config/fish/config.fish`, etc.)
+
 ## Common commands
 
 ```bash
