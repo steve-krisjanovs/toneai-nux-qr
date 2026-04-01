@@ -16,7 +16,7 @@ src/
   nux.ts        — device types, configs, and preset parameter interfaces
   decorate.ts   — PNG decoration (header/footer) using @napi-rs/canvas
   progress.ts   — ProgressDisplay class, TTY-aware (fancy redraw vs plain line output)
-  logger.ts     — RunLogger class, JSONL run logging, parseLog() for resume
+  logger.ts     — RunLogger class, JSONL run logging, parseLog()/listRuns()/resolveRunPath() for resume
   config.ts     — API key resolution, first-run wizard, config stored at ~/.toneai-nux-qr/
   index.ts      — public API exports for programmatic use
 ```
@@ -95,8 +95,12 @@ bun build src/cli.ts --compile --outfile tnqr   # standalone binary
 ./tnqr --list-devices
 ./tnqr -q "led zeppelin physical graffiti" --dry-run
 
-# Resume a failed run
-./tnqr -r ~/.toneai-nux-qr/logs/<timestamp>-<query>.jsonl
+# Resume most recent failed run
+./tnqr -r
+# Resume 3rd most recent
+./tnqr -r 3
+# List recent runs
+./tnqr --list-runs
 ```
 
 ## Dependencies
@@ -105,6 +109,12 @@ bun build src/cli.ts --compile --outfile tnqr   # standalone binary
 - `qrcode` — QR code generation to PNG buffer
 - `@napi-rs/canvas` — PNG composition for decorated QR images (chosen over sharp because sharp native binaries can't be bundled into Bun SEA)
 - `jszip` — optional zip archive creation
+
+## Versioning
+
+`VERSION.txt` is the source of truth. `package.json` version must match. Both `cli.ts` and `decorate.ts` read the version from `package.json` at build time (via JSON import). When bumping the version, update both `VERSION.txt` and `package.json`.
+
+**Output naming** is controlled by `--folder-format` (-F) and `--file-format` (-f) using Sonarr-style token templates: `{artist}`, `{album}`, `{track}`, `{song}`, `{preset}`, `{device}`. Empty tokens collapse cleanly. Single tracks omit `{track}`.
 
 ## Release pipeline
 

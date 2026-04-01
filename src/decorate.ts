@@ -1,6 +1,5 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas'
-
-const VERSION  = '1.0.0'
+import { version as VERSION } from '../package.json'
 const APP_NAME = 'toneai-nux-qr'
 
 const QR_SIZE  = 500

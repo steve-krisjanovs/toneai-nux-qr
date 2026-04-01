@@ -104,12 +104,15 @@ tnqr --list-devices
 | `-y` | `--yes` | `TNQR_YES` | Skip confirmation prompt | `false` |
 | `-s` | `--silent` | `TNQR_SILENT` | Suppress progress display | `false` |
 | `-n` | `--dry-run` | — | Show tracklist without generating | `false` |
-| `-r` | `--resume <log>` | — | Resume a failed run from its log file | — |
+| `-r` | `--resume [N\|all]` | — | Resume failed tracks (see below) | — |
 | `-L` | `--log <path>` | `TNQR_LOG` | Log file path | `~/.toneai-nux-qr/logs/` |
 | — | `--log-format` | `TNQR_LOG_FORMAT` | `jsonl` or `text` | `jsonl` |
+| `-F` | `--folder-format` | `TNQR_FOLDER_FORMAT` | Folder name format (tokens below) | `{artist}-{album}` |
+| `-f` | `--file-format` | `TNQR_FILE_FORMAT` | File name format (tokens below) | `{track}-{song}` |
 | `-m` | `--model <model>` | `TNQR_MODEL` | Tone generation model | `claude-sonnet-4-6` |
 | `-i` | `--intent-model` | `TNQR_INTENT_MODEL` | Intent resolution model | `claude-haiku-4-5-20251001` |
 | — | `--list-devices` | — | List all supported devices and exit | — |
+| — | `--list-runs [N]` | — | Show recent runs (default: 10) | — |
 | `-h` | `--help` | — | Show help | — |
 
 ### `--pickup` examples
@@ -128,15 +131,39 @@ When omitted, the AI researches the specific guitar and pickup used on each reco
 
 ---
 
-## Output
+## Output Format
 
 ```
 output/
   led-zeppelin-physical-graffiti/
     plugpro/
-      01-custard-pie-custard-pie-page-75.png
-      02-the-rover-the-rover-page-75.png
+      01-custard-pie.png
+      02-the-rover.png
       ...
+```
+
+Folder and file names are controlled by `--folder-format` and `--file-format` using token templates:
+
+| Token | Description |
+|---|---|
+| `{artist}` | Artist name |
+| `{album}` | Album or context name |
+| `{track}` | Zero-padded track number (omitted for single songs) |
+| `{song}` | Song title |
+| `{preset}` | AI-generated preset name |
+| `{device}` | Device ID |
+
+Empty tokens are dropped cleanly — no double dashes or empty path segments.
+
+```bash
+# Subfolders by artist then album
+tnqr "physical graffiti" -F "{artist}/{album}"
+
+# Device-first layout
+tnqr "physical graffiti" -d all -F "{device}/{artist}-{album}"
+
+# Include preset name in filename
+tnqr "kashmir" -f "{track}-{song}-{preset}"
 ```
 
 Each PNG is a decorated QR code with the app name and version in the header, and the artist, song, and device in the footer. Pro format devices (Plug Pro, Space, Lite MkII, 8BT MkII) embed the preset name directly in the QR payload.
@@ -145,10 +172,20 @@ Each PNG is a decorated QR code with the app name and version in the header, and
 
 ## Resuming Failed Runs
 
-Every run writes a log to `~/.toneai-nux-qr/logs/`. If tracks fail, resume with just the log file — no need to re-specify any arguments:
+Every run writes a log to `~/.toneai-nux-qr/logs/`. If tracks fail, resume without needing to find or type any file path:
 
 ```bash
-tnqr -r ~/.toneai-nux-qr/logs/2026-03-31_14-22-10-led-zeppelin-physical-graffiti.jsonl
+# Resume most recent failed run
+tnqr -r
+
+# Resume 3rd most recent run
+tnqr -r 3
+
+# Resume all runs with failures
+tnqr -r all
+
+# See recent runs and their status
+tnqr --list-runs
 ```
 
 ---

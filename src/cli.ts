@@ -13,6 +13,7 @@ import { ProgressDisplay } from './progress.js'
 import { RunLogger, parseLog, listRuns, resolveRunPath } from './logger.js'
 import type { LogFormat } from './logger.js'
 import type { DeviceType } from './nux.js'
+import pkg from '../package.json'
 
 const HARD_CEILING = 100
 const DEFAULT_CEILING = 25
@@ -547,7 +548,7 @@ async function main(): Promise<void> {
 
   // Instantiate logger
   const logger = new RunLogger(logPath, logFormat, {
-    version: '1.0.0',
+    version: pkg.version,
     query: query!,
     context,
     artist,
