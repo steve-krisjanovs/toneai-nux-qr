@@ -22,12 +22,13 @@ const DEFAULT_CEILING = 25
 const DEFAULT_CONCURRENCY = 5
 const MAX_CONCURRENCY = 25
 
-function confirm(question: string): Promise<boolean> {
+function confirm(question: string): Promise<'y' | 'n' | 'a'> {
   return new Promise(resolve => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
     rl.question(question, answer => {
       rl.close()
-      resolve(answer.trim().toLowerCase() === 'y')
+      const a = answer.trim().toLowerCase()
+      resolve(a === 'y' ? 'y' : a === 'a' ? 'a' : 'n')
     })
   })
 }
@@ -341,7 +342,7 @@ async function main(): Promise<void> {
     : (() => { console.error(`Error: --instrument must be "guitar" or "bass".`); process.exit(1) })()) as 'guitar' | 'bass'
   const silent      = parseBool('--silent',       '-s', 'TNQR_SILENT')
   const concurrency = parseInt_('--concurrency',  '-c', 'TNQR_CONCURRENCY',  DEFAULT_CONCURRENCY, MAX_CONCURRENCY)
-  const skipConfirm = parseBool('--yes',           '-y', 'TNQR_YES')
+  let skipConfirm   = parseBool('--yes',           '-y', 'TNQR_YES')
   const ceiling     = parseInt_('--ceiling',       '-l', 'TNQR_CEILING',      DEFAULT_CEILING,     HARD_CEILING)
   const createZip   = parseBool('--zip',           '-z', 'TNQR_ZIP')
   const dryRun      = parseBoolNoEnv('--dry-run',  '-n')
@@ -559,11 +560,12 @@ async function main(): Promise<void> {
       console.log(`\n⚠️  ${tracks.length} tracks resolved (ceiling: ${ceiling}) — proceeding with --yes`)
     } else {
       const totalQrs = tracks.length * devices.length
-      const proceed = await confirm(`\n⚠️  ${tracks.length} tracks resolved (ceiling: ${ceiling}). This will generate ${totalQrs} QR code${totalQrs === 1 ? '' : 's'}. Continue? [y/N] `)
-      if (!proceed) {
+      const answer = await confirm(`\n⚠️  ${tracks.length} tracks resolved (ceiling: ${ceiling}). This will generate ${totalQrs} QR code${totalQrs === 1 ? '' : 's'}. Continue? [y/N/a(ll)] `)
+      if (answer === 'n') {
         console.log('Aborted. Refine your query or raise --ceiling.')
-        process.exit(0)
+        process.exit(1)
       }
+      if (answer === 'a') skipConfirm = true
     }
   }
 
@@ -592,20 +594,27 @@ async function main(): Promise<void> {
     startedAt: new Date().toISOString(),
   })
 
-  // Graceful Ctrl+C — finish the current chunk then stop cleanly
+  // Graceful Ctrl+C — first press: stop after current in-flight tracks, second press: force exit
   let aborted = false
   let activeProgress: InstanceType<typeof ProgressDisplay> | null = null
-  process.once('SIGINT', () => {
+  process.on('SIGINT', () => {
+    if (aborted) {
+      // Second Ctrl+C — force exit immediately
+      if (activeProgress) activeProgress.stop()
+      console.log('\n⚠️  Force quit.\n')
+      process.exit(1)
+    }
     aborted = true
     if (activeProgress) {
       activeProgress.stop()
       const outDir = path.join(outputBase, contextSlug, devices[0])
       const done = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter(f => f.endsWith('.png')).length : 0
-      console.log(`\n⚠️  Cancelled. ${done}/${tracks.length} QR codes saved to: ${outputBase}/${contextSlug}/\n`)
+      console.log(`\n⚠️  Cancelling after current tracks finish... (Ctrl+C again to force quit)`)
+      console.log(`   ${done}/${tracks.length} QR codes saved so far to: ${outputBase}/${contextSlug}/`)
     } else {
       console.log('\n⚠️  Cancelled.\n')
+      process.exit(1)
     }
-    process.exit(0)
   })
 
   // 2. Generate QR per song per device — concurrent with progress display
@@ -752,9 +761,14 @@ async function main(): Promise<void> {
   if (!silent) {
     const { breakdown } = calculateCost(totalUsage, intentModel, toneModel)
     console.log(`   💰 ${breakdown}`)
+    if (aborted) {
+      console.log(`\n⚠️  Partially complete. Output in: ${outputBase}/${contextSlug}/\n`)
+      process.exit(1)
+    }
     console.log(`\n✅ Done! Output in: ${outputBase}/${contextSlug}/\n`)
   } else {
     console.log(`${outputBase}/${contextSlug}/`)
+    if (aborted) process.exit(1)
   }
 }
 
