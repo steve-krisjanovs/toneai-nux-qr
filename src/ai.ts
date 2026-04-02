@@ -59,13 +59,41 @@ export interface ResolvedTrack {
   note?: string
 }
 
+export interface ApiUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  webSearches: number
+}
+
+function emptyUsage(): ApiUsage {
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 }
+}
+
+function accumulateUsage(total: ApiUsage, response: Anthropic.Message): void {
+  total.inputTokens += response.usage?.input_tokens ?? 0
+  total.outputTokens += response.usage?.output_tokens ?? 0
+  const u = response.usage as Record<string, unknown>
+  total.cacheReadTokens += (u?.cache_read_input_tokens as number) ?? 0
+  total.cacheWriteTokens += (u?.cache_creation_input_tokens as number) ?? 0
+  const serverToolUse = u?.server_tool_use as Record<string, number> | undefined
+  total.webSearches += serverToolUse?.web_search_requests ?? 0
+}
+
 export interface ResolvedIntent {
   artist: string
   context: string
   tracks: ResolvedTrack[]
 }
 
-export async function resolveIntent(client: Anthropic, query: string, model = 'claude-haiku-4-5-20251001'): Promise<ResolvedIntent> {
+export interface ResolvedIntentResult {
+  intent: ResolvedIntent
+  usage: ApiUsage
+}
+
+export async function resolveIntent(client: Anthropic, query: string, model = 'claude-haiku-4-5-20251001'): Promise<ResolvedIntentResult> {
+  const usage = emptyUsage()
   let msgs: Anthropic.MessageParam[] = [{
     role: 'user',
     content: `Resolve this into a list of songs to generate guitar tones for: "${query}"
@@ -89,6 +117,7 @@ Use web search to verify the correct track listing or setlist. Then call resolve
       3, 'intent resolution'
     )
 
+    accumulateUsage(usage, response)
     msgs = [...msgs, { role: 'assistant', content: response.content }]
 
     // Find resolve_intent tool call
@@ -96,7 +125,7 @@ Use web search to verify the correct track listing or setlist. Then call resolve
       b => b.type === 'tool_use' && b.name === 'resolve_intent'
     )
     if (resolveUse && resolveUse.type === 'tool_use') {
-      return resolveUse.input as ResolvedIntent
+      return { intent: resolveUse.input as ResolvedIntent, usage }
     }
 
     if (response.stop_reason !== 'tool_use') {
@@ -350,6 +379,7 @@ export interface ToneResult {
   qrString?: string
   nudgeRequired: boolean
   nudgeElapsedMs?: number
+  usage: ApiUsage
 }
 
 export async function generateToneForSong(
@@ -391,6 +421,7 @@ export async function generateToneForSong(
 
   const promptSent = `Generate a NUX MightyAmp tone preset for "${song}"${noteContext} by ${artist} (${context}) for device: ${device}. Search the web for the tone of this specific recording first, then call generateQR.${instrumentContext}${pickupContext}`
 
+  const usage = emptyUsage()
   let msgs: Anthropic.MessageParam[] = [{ role: 'user', content: promptSent }]
 
   while (true) {
@@ -398,13 +429,14 @@ export async function generateToneForSong(
       () => client.messages.create({
         model,
         max_tokens: 1024,
-        system: TONE_SYSTEM_PROMPT,
+        system: [{ type: 'text', text: TONE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
         tools: [WEB_SEARCH_TOOL, GENERATE_QR_TOOL],
         messages: msgs,
       }),
       3, `tone for "${song}"`
     )
 
+    accumulateUsage(usage, response)
     msgs = [...msgs, { role: 'assistant', content: response.content }]
 
     // Find generateQR tool call
@@ -414,7 +446,7 @@ export async function generateToneForSong(
     if (generateUse && generateUse.type === 'tool_use') {
       const rawToolInput = generateUse.input
       const params = coerceParams(rawToolInput as Record<string, unknown>, device)
-      return { params, promptSent, rawToolInput, nudgeRequired: false }
+      return { params, promptSent, rawToolInput, nudgeRequired: false, usage }
     }
 
     if (response.stop_reason === 'tool_use') {
@@ -446,12 +478,14 @@ export async function generateToneForSong(
       () => client.messages.create({
         model,
         max_tokens: 1024,
-        system: TONE_SYSTEM_PROMPT,
+        system: [{ type: 'text', text: TONE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
         tools: [WEB_SEARCH_TOOL, GENERATE_QR_TOOL],
         messages: msgs,
       }),
       3, `tone for "${song}" (nudge)`
     )
+
+    accumulateUsage(usage, nudgeResponse)
 
     const toolUse = nudgeResponse.content.find(
       b => b.type === 'tool_use' && b.name === 'generateQR'
@@ -461,6 +495,6 @@ export async function generateToneForSong(
     }
     const rawToolInput = toolUse.input
     const params = coerceParams(rawToolInput as Record<string, unknown>, device)
-    return { params, promptSent, rawToolInput, nudgeRequired: true, nudgeElapsedMs: Date.now() - nudgeStart }
+    return { params, promptSent, rawToolInput, nudgeRequired: true, nudgeElapsedMs: Date.now() - nudgeStart, usage }
   }
 }

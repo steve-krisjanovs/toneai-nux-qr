@@ -31,6 +31,12 @@ src/
 
 **Nudge pattern** — if the model stops without calling `generateQR` (usually after web search returns results and the model responds conversationally), we send one follow-up message explicitly asking it to call the tool. `nudgeRequired` is logged per track.
 
+**Prompt caching** — the system prompt (~8k tokens) is cached via Anthropic's `cache_control: { type: 'ephemeral' }` on every tone generation call. First call writes the cache (1.25x cost), subsequent calls within 5 minutes read from cache (0.1x cost). This reduces input token costs by ~90% on multi-track runs.
+
+**API cost tracking** — every API response's `usage` object is accumulated (input, output, cache read/write tokens, web search count). Estimated cost is calculated from `pricing.json` and displayed at the end of each run. Per-track usage is logged in JSONL.
+
+**pricing.json** — bundled into the binary at compile time. Contains per-model token rates and web search pricing. Source: https://docs.anthropic.com/en/docs/about-claude/pricing. Claude Code is delegated to periodically fetch and update this file.
+
 **coerceParams()** — normalises raw LLM tool call output into valid `ProPresetParams`. LLMs occasionally use wrong field names or omit required fields. Coercion happens at the boundary before encoding.
 
 **Device families:**

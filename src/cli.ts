@@ -8,6 +8,8 @@ import { ALL_DEVICES, VALID_DEVICES, DEVICES } from './nux.js'
 import { generateQRPng } from './encoder.js'
 import { decorateQR } from './decorate.js'
 import { resolveIntent, generateToneForSong } from './ai.js'
+import type { ApiUsage } from './ai.js'
+import pricing from '../pricing.json'
 import { resolveApiKey } from './config.js'
 import { ProgressDisplay } from './progress.js'
 import { RunLogger, parseLog, listRuns, resolveRunPath } from './logger.js'
@@ -85,6 +87,21 @@ function slugify(str: string): string {
 
 function pad(n: number, total: number): string {
   return String(n).padStart(Math.max(2, String(total).length), '0')
+}
+
+function calculateCost(usage: ApiUsage, intentModel: string, toneModel: string): { total: number, breakdown: string } {
+  const models = pricing.models as Record<string, { input_per_mtok: number, output_per_mtok: number }>
+  const model = models[toneModel] ?? models['claude-sonnet-4-6']
+  const inputCost = (usage.inputTokens / 1_000_000) * model.input_per_mtok
+  const outputCost = (usage.outputTokens / 1_000_000) * model.output_per_mtok
+  const cacheWriteCost = (usage.cacheWriteTokens / 1_000_000) * model.input_per_mtok * 1.25
+  const cacheReadCost = (usage.cacheReadTokens / 1_000_000) * model.input_per_mtok * 0.1
+  const searchCost = (usage.webSearches / 1000) * pricing.web_search_per_1k
+  const total = inputCost + outputCost + cacheWriteCost + cacheReadCost + searchCost
+  const fmt = (n: number) => n.toLocaleString()
+  const cached = usage.cacheReadTokens > 0 ? ` (${fmt(usage.cacheReadTokens)} cached)` : ''
+  const breakdown = `${fmt(usage.inputTokens)} in${cached} / ${fmt(usage.outputTokens)} out / ${usage.webSearches} searches (~$${total.toFixed(2)} est., pricing ${pricing.updated})`
+  return { total, breakdown }
 }
 
 const DEFAULT_FOLDER_FORMAT = '{artist}-{album}'
@@ -498,9 +515,16 @@ async function main(): Promise<void> {
 
   // 1. Resolve intent — single song, album, live set, vibe, etc.
   console.log(`\n🔍 Resolving: "${query}"...`)
+  const totalUsage: ApiUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 }
   let artist: string, context: string, tracks: { title: string; note?: string }[]
   try {
-    ;({ artist, context, tracks } = await resolveIntent(client, query!, intentModel))
+    const result = await resolveIntent(client, query!, intentModel)
+    ;({ artist, context, tracks } = result.intent)
+    totalUsage.inputTokens += result.usage.inputTokens
+    totalUsage.outputTokens += result.usage.outputTokens
+    totalUsage.cacheReadTokens += result.usage.cacheReadTokens
+    totalUsage.cacheWriteTokens += result.usage.cacheWriteTokens
+    totalUsage.webSearches += result.usage.webSearches
   } catch (err) {
     console.error(`Error resolving query: ${err instanceof Error ? err.message : err}`)
     process.exit(1)
@@ -595,8 +619,8 @@ async function main(): Promise<void> {
 
     // ── Retry mode: find tracks missing a PNG in the output dir ─────────────
     let tracksToGenerate = tracks
-    if (retryDir) {
-      const retryDeviceDir = path.join(retryDir, device)
+    if (resumeArg) {
+      const retryDeviceDir = path.join(resumeArg, device)
       tracksToGenerate = tracks.filter((t, i) => {
         // Look for any PNG starting with the track number prefix
         const prefix = tracks.length === 1 ? slugify(t.title) : `${pad(i + 1, tracks.length)}-${slugify(t.title)}`
@@ -635,7 +659,12 @@ async function main(): Promise<void> {
           progress.setQuerying(i)
           const trackStarted = new Date().toISOString()
           try {
-            const { params, promptSent, rawToolInput, nudgeRequired, nudgeElapsedMs } = await generateToneForSong(client, title, artist, context, device, pickup, note, toneModel, instrument)
+            const { params, promptSent, rawToolInput, nudgeRequired, nudgeElapsedMs, usage: trackUsage } = await generateToneForSong(client, title, artist, context, device, pickup, note, toneModel, instrument)
+            totalUsage.inputTokens += trackUsage.inputTokens
+            totalUsage.outputTokens += trackUsage.outputTokens
+            totalUsage.cacheReadTokens += trackUsage.cacheReadTokens
+            totalUsage.cacheWriteTokens += trackUsage.cacheWriteTokens
+            totalUsage.webSearches += trackUsage.webSearches
             const fileVars = { artist, album, track: trackNum, song: title, preset: params.preset_name, device }
             const filename = `${formatTemplate(fileFormat, fileVars)}.png`
             const outPath = path.join(outDir, filename)
@@ -661,6 +690,9 @@ async function main(): Promise<void> {
               nudgeRequired,
               nudgeElapsedMs,
               elapsedMs: elapsed,
+              inputTokens: trackUsage.inputTokens,
+              outputTokens: trackUsage.outputTokens,
+              webSearches: trackUsage.webSearches,
               startedAt: trackStarted,
               completedAt: new Date().toISOString(),
             })
@@ -700,18 +732,30 @@ async function main(): Promise<void> {
 
   // 4. Flush log
   const finalOutDir = path.join(outputBase, contextSlug)
+  const { total: estimatedCost } = calculateCost(totalUsage, intentModel, toneModel)
   logger.flush({
     succeeded: logger.trackCount('success'),
     failed: logger.trackCount('failed'),
     totalElapsedMs: Date.now() - runStart,
     outputDir: finalOutDir,
     zipPath,
+    totalInputTokens: totalUsage.inputTokens,
+    totalOutputTokens: totalUsage.outputTokens,
+    totalCacheReadTokens: totalUsage.cacheReadTokens,
+    totalCacheWriteTokens: totalUsage.cacheWriteTokens,
+    totalWebSearches: totalUsage.webSearches,
+    estimatedCostUsd: parseFloat(estimatedCost.toFixed(4)),
     completedAt: new Date().toISOString(),
   })
   if (!silent) console.log(`   📋 Log saved: ${logger.path}`)
 
-  if (!silent) console.log(`\n✅ Done! Output in: ${outputBase}/${contextSlug}/\n`)
-  else console.log(`${outputBase}/${contextSlug}/`)
+  if (!silent) {
+    const { breakdown } = calculateCost(totalUsage, intentModel, toneModel)
+    console.log(`   💰 ${breakdown}`)
+    console.log(`\n✅ Done! Output in: ${outputBase}/${contextSlug}/\n`)
+  } else {
+    console.log(`${outputBase}/${contextSlug}/`)
+  }
 }
 
 main().catch(err => {

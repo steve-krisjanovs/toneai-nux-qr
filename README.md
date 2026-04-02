@@ -212,6 +212,18 @@ Device names are fuzzy-matched — `"plug pro"`, `"mighty air v2"`, `"lite bt"` 
 
 ---
 
+## API Cost Tracking
+
+Every run displays estimated API cost and logs full token usage:
+
+```
+💰 69,743 in (708,972 cached) / 15,153 out / 41 searches (~$2.73 est., pricing 2026-04)
+```
+
+Prompt caching is enabled automatically — the large system prompt is cached across tracks within a run, reducing input token costs by up to 90% on multi-track albums. Estimated costs use bundled pricing from `pricing.json` (updated periodically).
+
+---
+
 ## Shell Profile Setup
 
 Set your frequently-used options once:

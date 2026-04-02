@@ -37,6 +37,9 @@ export interface TrackLog {
   nudgeElapsedMs?: number
   elapsedMs?: number
   error?: string
+  inputTokens?: number
+  outputTokens?: number
+  webSearches?: number
   startedAt: string
   completedAt: string
 }
@@ -47,6 +50,12 @@ export interface RunSummary {
   totalElapsedMs: number
   outputDir: string
   zipPath?: string
+  totalInputTokens?: number
+  totalOutputTokens?: number
+  totalCacheReadTokens?: number
+  totalCacheWriteTokens?: number
+  totalWebSearches?: number
+  estimatedCostUsd?: number
   completedAt: string
 }
 

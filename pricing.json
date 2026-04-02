@@ -1,0 +1,11 @@
+{
+  "updated": "2026-04",
+  "source": "https://docs.anthropic.com/en/docs/about-claude/pricing",
+  "currency": "USD",
+  "models": {
+    "claude-sonnet-4-6": { "input_per_mtok": 3.00, "output_per_mtok": 15.00 },
+    "claude-haiku-4-5-20251001": { "input_per_mtok": 1.00, "output_per_mtok": 5.00 },
+    "claude-opus-4-6": { "input_per_mtok": 5.00, "output_per_mtok": 25.00 }
+  },
+  "web_search_per_1k": 10.00
+}
