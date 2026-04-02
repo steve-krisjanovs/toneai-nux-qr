@@ -134,3 +134,7 @@ GitHub Actions on `v*` tags:
 
 - `mighty-ai-qr-web` — the web app this was extracted from. Same QR encoding, same system prompt, same Anthropic native web search approach. Use the web app for interactive single-tone refinement; use tnqr for bulk album generation.
 - `winrawprinter` — another npm module by the same author
+
+## TODO
+
+- Skip tracks with no guitar part — have the intent resolver flag non-guitar tracks (e.g. "Eleanor Rigby", orchestral pieces) and skip them by default. Add `--include-all` flag to override. Saves API cost and avoids generating nonsensical tones.

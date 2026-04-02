@@ -147,39 +147,43 @@ export function listRuns(limit: number = 10): RunInfo[] {
 }
 
 export function resolveRunPath(arg: string | undefined): string[] {
+  return resolveRuns(arg, 'failed').map(r => r.path)
+}
+
+export function resolveRuns(arg: string | undefined, filter?: 'failed'): RunInfo[] {
   const runs = listRuns(100)
   if (runs.length === 0) {
     console.error('Error: no runs found in ~/.toneai-nux-qr/logs/')
     process.exit(1)
   }
 
-  // No arg = most recent with failures
+  // No arg = most recent (optionally filtered)
   if (!arg) {
-    const withFailures = runs.find(r => r.failed > 0)
-    if (!withFailures) {
-      console.log('\n✅ No failed runs to resume.\n')
+    const target = filter === 'failed' ? runs.find(r => r.failed > 0) : runs[0]
+    if (!target) {
+      console.log(filter === 'failed' ? '\n✅ No failed runs to resume.\n' : '\nNo runs found.\n')
       process.exit(0)
     }
-    return [withFailures.path]
+    return [target]
   }
 
-  // "all" = every run with failures
+  // "all" = all runs (optionally filtered)
   if (arg === 'all') {
-    const withFailures = runs.filter(r => r.failed > 0)
-    if (withFailures.length === 0) {
-      console.log('\n✅ No failed runs to resume.\n')
+    const targets = filter === 'failed' ? runs.filter(r => r.failed > 0) : runs
+    if (targets.length === 0) {
+      console.log(filter === 'failed' ? '\n✅ No failed runs to resume.\n' : '\nNo runs found.\n')
       process.exit(0)
     }
-    return withFailures.map(r => r.path)
+    return targets
   }
 
   // Number = Nth most recent
   const n = parseInt(arg, 10)
   if (!isNaN(n) && n >= 1 && n <= runs.length) {
-    return [runs[n - 1].path]
+    return [runs[n - 1]]
   }
 
-  console.error(`Error: invalid resume target "${arg}". Use a number (1-${runs.length}), "all", or omit for most recent.`)
+  console.error(`Error: invalid target "${arg}". Use a number (1-${runs.length}), "all", or omit for most recent.`)
   process.exit(1)
 }
 

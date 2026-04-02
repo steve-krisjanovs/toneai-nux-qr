@@ -12,7 +12,7 @@ import type { ApiUsage } from './ai.js'
 import pricing from '../pricing.json'
 import { resolveApiKey } from './config.js'
 import { ProgressDisplay } from './progress.js'
-import { RunLogger, parseLog, listRuns, resolveRunPath } from './logger.js'
+import { RunLogger, parseLog, listRuns, resolveRunPath, resolveRuns } from './logger.js'
 import type { LogFormat } from './logger.js'
 import type { DeviceType } from './nux.js'
 import pkg from '../package.json'
@@ -169,6 +169,7 @@ Options:
                          -r 3       third most recent run
                          -r all     all runs with failures
       --list-runs [N]    Show recent runs (default: 10)
+      --delete [N|all]   Delete output files and log for a run (same args as -r)
   -L, --log <path>       Log file path (default: ~/.toneai-nux-qr/logs/<timestamp>.jsonl) $TNQR_LOG
       --log-format       Log format: jsonl or text (default: jsonl)    $TNQR_LOG_FORMAT
   -F, --folder-format    Folder name format (default: {artist}-{album})  $TNQR_FOLDER_FORMAT
@@ -286,6 +287,57 @@ async function main(): Promise<void> {
       console.log(`  ${String(r.index).padStart(2)}  ${statusIcon[r.status]}  ${r.date}  ${r.context}  [${r.succeeded}/${r.totalTracks}]${failStr}`)
     }
     console.log(`\nResume with: tnqr -r <number>  |  tnqr -r  (most recent failed)  |  tnqr -r all\n`)
+    process.exit(0)
+  }
+
+  // --delete [N|all] — delete output files and log for a run
+  const deleteIdx = args.findIndex(a => a === '--delete')
+  if (deleteIdx !== -1) {
+    const deleteNext = args[deleteIdx + 1]
+    const deleteArg = deleteNext && !deleteNext.startsWith('-') ? deleteNext : undefined
+    const runs = resolveRuns(deleteArg)
+
+    if (deleteArg === 'all' && runs.length > 1) {
+      const answer = await confirm(`\n⚠️  Delete output and logs for ${runs.length} runs? [y/N] `)
+      if (answer !== 'y') {
+        console.log('Aborted.')
+        process.exit(0)
+      }
+    }
+
+    for (const run of runs) {
+      const parsed = parseLog(run.path)
+      const outputDir = parsed.summary?.outputDir
+      let filesDeleted = 0
+      let dirsDeleted = 0
+
+      if (outputDir && fs.existsSync(outputDir)) {
+        // Delete all files recursively
+        const walk = (dir: string) => {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name)
+            if (entry.isDirectory()) {
+              walk(full)
+              if (fs.readdirSync(full).length === 0) { fs.rmdirSync(full); dirsDeleted++ }
+            } else {
+              fs.unlinkSync(full); filesDeleted++
+            }
+          }
+        }
+        walk(outputDir)
+        // Delete the output dir itself if empty
+        if (fs.existsSync(outputDir) && fs.readdirSync(outputDir).length === 0) {
+          fs.rmdirSync(outputDir); dirsDeleted++
+        }
+      }
+
+      // Delete the log file
+      fs.unlinkSync(run.path)
+
+      console.log(`  🗑️  ${run.context} — ${filesDeleted} files, ${dirsDeleted} folders, log deleted`)
+    }
+
+    console.log(`\n✅ Deleted ${runs.length} run${runs.length === 1 ? '' : 's'}.\n`)
     process.exit(0)
   }
 
