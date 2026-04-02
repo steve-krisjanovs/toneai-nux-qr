@@ -191,6 +191,25 @@ tnqr --list-runs
 
 ---
 
+## Deleting Runs
+
+Delete output files, folders, and logs for any run — uses the same numbering as resume:
+
+```bash
+# Delete most recent run
+tnqr --delete
+
+# Delete 3rd most recent run
+tnqr --delete 3
+
+# Delete all runs (prompts for confirmation)
+tnqr --delete all
+```
+
+Empty folders are cleaned up automatically.
+
+---
+
 ## Devices
 
 | ID | Device | Format |
