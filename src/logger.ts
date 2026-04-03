@@ -210,6 +210,16 @@ export class RunLogger {
       fs.mkdirSync(LOGS_DIR, { recursive: true })
       this.logPath = path.join(LOGS_DIR, `${timestamp}-${slug}.${ext}`)
     }
+
+    // Write run_start to disk immediately so the log survives a crash
+    if (this.enabled && this.format === 'jsonl') {
+      try {
+        fs.mkdirSync(path.dirname(this.logPath), { recursive: true })
+        fs.writeFileSync(this.logPath, JSON.stringify({ type: 'run_start', ...this.meta }) + '\n', 'utf8')
+      } catch (err) {
+        process.stderr.write(`Warning: could not write log: ${err instanceof Error ? err.message : err}\n`)
+      }
+    }
   }
 
   disable(): void {
@@ -219,16 +229,26 @@ export class RunLogger {
   logTrack(entry: TrackLog): void {
     if (!this.enabled) return
     this.trackLogs.push(entry)
+
+    // Append track to disk incrementally so progress survives a crash
+    if (this.format === 'jsonl') {
+      try {
+        fs.appendFileSync(this.logPath, JSON.stringify({ type: 'track', ...entry }) + '\n', 'utf8')
+      } catch (err) {
+        process.stderr.write(`Warning: could not append to log: ${err instanceof Error ? err.message : err}\n`)
+      }
+    }
   }
 
   flush(summary: RunSummary): void {
     if (!this.enabled) return
     try {
-      fs.mkdirSync(path.dirname(this.logPath), { recursive: true })
       if (this.format === 'text') {
+        fs.mkdirSync(path.dirname(this.logPath), { recursive: true })
         fs.writeFileSync(this.logPath, this.buildTextLog(summary), 'utf8')
       } else {
-        fs.writeFileSync(this.logPath, this.buildJsonlLog(summary), 'utf8')
+        // run_start and tracks already written incrementally — just append run_end
+        fs.appendFileSync(this.logPath, JSON.stringify({ type: 'run_end', ...summary }) + '\n', 'utf8')
       }
     } catch (err) {
       // Non-fatal — never crash the app over logging
