@@ -194,10 +194,6 @@ jobs:
 
             **Linux (Fedora/RHEL):** `sudo rpm -i tnqr-${{ steps.version.outputs.VERSION }}-1.x86_64.rpm`
 
-            **npm/Node:** `npm install -g toneai-nux-qr`
-
-            **Bun:** `bun install -g toneai-nux-qr`
-
             ---
             On first run, `tnqr` will walk you through setting up your Anthropic API key.
           files: release-assets/**/*

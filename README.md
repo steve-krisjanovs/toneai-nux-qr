@@ -32,16 +32,6 @@ sudo dpkg -i tnqr_<version>_amd64.deb
 sudo rpm -i toneai-nux-qr-<version>-1.x86_64.rpm
 ```
 
-**npm / Node.js 18+:**
-```bash
-npm install -g toneai-nux-qr
-```
-
-**Bun:**
-```bash
-bun install -g toneai-nux-qr
-```
-
 On first run, `tnqr` will walk you through setting up your Anthropic API key. Your key is stored in `~/.toneai-nux-qr/config.json` and never leaves your machine except to call the Anthropic API.
 
 You can also set it directly:
@@ -264,10 +254,6 @@ tnqr "led zeppelin physical graffiti"
 ## Requirements
 
 **Standalone installers (Windows/macOS/Linux)** — nothing required. The binary is self-contained with Bun bundled in.
-
-**npm install:** Node.js 18+
-
-**bun install:** Bun
 
 All distributions require an Anthropic API key — [get one free at console.anthropic.com](https://console.anthropic.com)
 
