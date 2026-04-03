@@ -98,7 +98,6 @@ tnqr --list-devices
 | `-o` | `--output <path>` | `TNQR_OUTPUT` | Output directory | `./output` |
 | `-k` | `--api-key <key>` | `TNQR_ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `-p` | `--pickup <desc>` | `TNQR_PICKUP` | Instrument signal context (free text) | — |
-| `-z` | `--zip` | `TNQR_ZIP` | Also create a zip archive | `false` |
 | `-l` | `--ceiling <n>` | `TNQR_CEILING` | Max tracks before confirmation prompt | `25` |
 | `-c` | `--concurrency <n>` | `TNQR_CONCURRENCY` | Parallel track generation (max 25) | `5` |
 | `-y` | `--yes` | `TNQR_YES` | Skip confirmation prompt | `false` |

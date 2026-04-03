@@ -115,7 +115,7 @@ bun build src/cli.ts --compile --outfile tnqr   # standalone binary
 - `qrcode` — QR code generation to PNG buffer
 - `@napi-rs/canvas` — PNG composition for decorated QR images (chosen over sharp because sharp native binaries can't be bundled into Bun SEA)
 
-Note: `jszip` was removed in v1.4.0. The `--zip` flag no longer exists — cloud export via `--gdrive`, `--dropbox`, `--onedrive` replaces it.
+Note: `jszip` was removed in v1.3.1. The `--zip` / `-z` / `TNQR_ZIP` flag no longer exists. Cloud export (`--gdrive`, `--dropbox`, `--onedrive`) is planned for v1.4.0.
 
 ## Versioning
 

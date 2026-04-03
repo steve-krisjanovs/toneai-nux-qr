@@ -20,8 +20,9 @@ Add optional upload of QR code PNGs to Google Drive, Dropbox, and/or OneDrive. E
 | v1.1.0 | `--folder-format` / `--file-format`, `--list-runs`, resume by number, `VERSION.txt` |
 | v1.2.0 | API cost tracking (`ApiUsage`), prompt caching, `pricing.json`, token breakdown in final summary |
 | v1.3.0 | `--delete`, double Ctrl+C force quit, `[y/N/a(ll)]` confirm, `resolveRuns()` refactor |
+| v1.3.1 | Removed `--zip` / `-z` / `TNQR_ZIP` and `jszip` dependency |
 
-Cloud export slots naturally after the zip step in the generation loop. The `RunLogger` flush already captures `outputDir` and `zipPath` — add upload URLs to it.
+Cloud export slots naturally after the generation loop. The `RunLogger` flush already captures `outputDir` — add upload URLs to it.
 
 ---
 

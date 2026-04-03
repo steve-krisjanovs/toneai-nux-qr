@@ -49,7 +49,6 @@ export interface RunSummary {
   failed: number
   totalElapsedMs: number
   outputDir: string
-  zipPath?: string
   totalInputTokens?: number
   totalOutputTokens?: number
   totalCacheReadTokens?: number
@@ -287,7 +286,6 @@ export class RunLogger {
     lines.push(`# Failed:    ${summary.failed}/${this.meta.totalTracks}`)
     lines.push(`# Total time: ${(summary.totalElapsedMs / 1000).toFixed(1)}s`)
     lines.push(`# Output:    ${summary.outputDir}`)
-    if (summary.zipPath) lines.push(`# Zip:       ${summary.zipPath}`)
     return lines.join('\n') + '\n'
   }
 }

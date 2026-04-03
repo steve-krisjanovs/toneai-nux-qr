@@ -3,7 +3,6 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
-import JSZip from 'jszip'
 import { ALL_DEVICES, VALID_DEVICES, DEVICES } from './nux.js'
 import { generateQRPng } from './encoder.js'
 import { decorateQR } from './decorate.js'
@@ -158,7 +157,6 @@ Options:
                               "Jazz bass bridge pickup, vol full, tone 8"
                               "Precision bass, flatwounds, vol 7"
                               "Active EMG 81 bridge, vol full"
-  -z, --zip              Create a zip archive of all QR codes           $TNQR_ZIP
   -l, --ceiling <n>      Max tracks before confirmation (default: 25)   $TNQR_CEILING
   -c, --concurrency <n>  Parallel track generation (default: 5, max 25) $TNQR_CONCURRENCY
   -y, --yes              Skip confirmation prompt                        $TNQR_YES
@@ -196,7 +194,6 @@ Environment Variables:
   TNQR_ANTHROPIC_API_KEY     Anthropic API key (same as -k)
                              Also accepts: ANTHROPIC_API_KEY (standard Anthropic convention)
   TNQR_PICKUP                Guitar signal context (same as -p)
-  TNQR_ZIP                   Create zip archive, set to 1 or true (same as -z)
   TNQR_CEILING               Max tracks before confirmation prompt (same as -l, default: 25)
   TNQR_CONCURRENCY           Parallel track generation (same as -c, default: 5, max: 25)
   TNQR_YES                   Skip confirmation, set to 1 or true (same as -y)
@@ -396,7 +393,6 @@ async function main(): Promise<void> {
   const concurrency = parseInt_('--concurrency',  '-c', 'TNQR_CONCURRENCY',  DEFAULT_CONCURRENCY, MAX_CONCURRENCY)
   let skipConfirm   = parseBool('--yes',           '-y', 'TNQR_YES')
   const ceiling     = parseInt_('--ceiling',       '-l', 'TNQR_CEILING',      DEFAULT_CEILING,     HARD_CEILING)
-  const createZip   = parseBool('--zip',           '-z', 'TNQR_ZIP')
   const dryRun      = parseBoolNoEnv('--dry-run',  '-n')
 
   // --resume / -r: optional value (no arg = most recent failed, number = Nth, "all" = all failed)
@@ -627,7 +623,6 @@ async function main(): Promise<void> {
   const album = extractAlbum(context)
   const folderVars = { artist, album, device: devices[0] }
   const contextSlug = formatTemplate(folderFormat, folderVars)
-  const zip = createZip ? new JSZip() : null
   const runStart = Date.now()
 
   // Instantiate logger
@@ -734,7 +729,6 @@ async function main(): Promise<void> {
             const qrString = buildQRString(params)
             const png = await decorateQR(qrRaw, artist, title, device, deviceInfo.displayName)
             fs.writeFileSync(outPath, png)
-            if (zip) zip.folder(device)!.file(filename, png)
             const elapsed = Date.now() - trackStart
             progress.setDone(i, params.preset_name, elapsed)
             logger.logTrack({
@@ -782,16 +776,7 @@ async function main(): Promise<void> {
     progress.stop()
   }
 
-  // 3. Write zip if requested
-  let zipPath: string | undefined
-  if (zip) {
-    zipPath = path.join(outputBase, `${contextSlug}.zip`)
-    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
-    fs.writeFileSync(zipPath, zipBuffer)
-    if (!silent) console.log(`\n📦 Zip saved: ${zipPath}`)
-  }
-
-  // 4. Flush log
+  // 3. Flush log
   const finalOutDir = path.join(outputBase, contextSlug)
   const { total: estimatedCost } = calculateCost(totalUsage, intentModel, toneModel)
   logger.flush({
@@ -799,7 +784,6 @@ async function main(): Promise<void> {
     failed: logger.trackCount('failed'),
     totalElapsedMs: Date.now() - runStart,
     outputDir: finalOutDir,
-    zipPath,
     totalInputTokens: totalUsage.inputTokens,
     totalOutputTokens: totalUsage.outputTokens,
     totalCacheReadTokens: totalUsage.cacheReadTokens,
