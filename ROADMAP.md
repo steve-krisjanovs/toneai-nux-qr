@@ -1,8 +1,43 @@
 # toneai-nux-qr — Feature Roadmap
 
+## v1.3.x — `--cost` Usage Summary
 ## v1.4.0 — Cloud Export
 ## v1.5.0 — First-Run Onboarding + Chat Mode
 ## v1.6.0 — Spotify TUI Browser
+
+---
+
+## `--cost` — API Usage Summary
+
+Scan logs and summarize total token usage and estimated cost.
+
+### CLI
+
+| Usage | Description |
+|---|---|
+| `tnqr --cost` | All-time totals across all runs |
+| `tnqr --cost 5` | Last 5 runs |
+| `tnqr --cost today` | Today's runs only |
+
+### Output
+
+```
+API Usage Summary (last 5 runs)
+
+  Runs:          5
+  Tracks:        58
+  Input tokens:  142,300
+  Output tokens: 38,200
+  Web searches:  116
+  Est. cost:     $1.47
+```
+
+### Implementation notes
+
+- Data already exists in run logs — `RunSummary` has `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`, `totalCacheWriteTokens`, `totalWebSearches`, `estimatedCostUsd`
+- Reuse `listRuns()` + `parseLog()` to load and aggregate
+- `today` filter: compare `run_start.startedAt` date to current local date
+- Numeric arg: reuse the same N-most-recent pattern as `--list-runs` and `--delete`
 
 ---
 
@@ -21,6 +56,7 @@ Add optional upload of QR code PNGs to Google Drive, Dropbox, and/or OneDrive. E
 | v1.2.0 | API cost tracking (`ApiUsage`), prompt caching, `pricing.json`, token breakdown in final summary |
 | v1.3.0 | `--delete`, double Ctrl+C force quit, `[y/N/a(ll)]` confirm, `resolveRuns()` refactor |
 | v1.3.1 | Removed `--zip` / `-z` / `TNQR_ZIP` and `jszip` dependency |
+| v1.3.2 | Incremental JSONL logging — survives crashes mid-run |
 
 Cloud export slots naturally after the generation loop. The `RunLogger` flush already captures `outputDir` — add upload URLs to it.
 
