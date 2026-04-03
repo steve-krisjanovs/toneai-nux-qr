@@ -114,7 +114,8 @@ bun build src/cli.ts --compile --outfile tnqr   # standalone binary
 - `@anthropic-ai/sdk` — Anthropic API client
 - `qrcode` — QR code generation to PNG buffer
 - `@napi-rs/canvas` — PNG composition for decorated QR images (chosen over sharp because sharp native binaries can't be bundled into Bun SEA)
-- `jszip` — optional zip archive creation
+
+Note: `jszip` was removed in v1.3.1. The `--zip` / `-z` / `TNQR_ZIP` flag no longer exists. Cloud export (`--gdrive`, `--dropbox`, `--onedrive`) is planned for v1.4.0.
 
 ## Versioning
 
@@ -134,6 +135,13 @@ GitHub Actions on `v*` tags:
 
 - `mighty-ai-qr-web` — the web app this was extracted from. Same QR encoding, same system prompt, same Anthropic native web search approach. Use the web app for interactive single-tone refinement; use tnqr for bulk album generation.
 - `winrawprinter` — another npm module by the same author
+
+## Roadmap
+
+See `ROADMAP.md` in the repo root for the full feature roadmap:
+- **v1.4.0** — Cloud export (Google Drive, Dropbox, OneDrive), zip removal, post-install dialogs
+- **v1.5.0** — First-run onboarding, `--chat` guided mode, shell profile setup
+- **v1.6.0** — Spotify integration (TUI browser + direct URL/URI mode, unified OAuth)
 
 ## TODO
 

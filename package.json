@@ -40,8 +40,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@napi-rs/canvas": "^0.1.97",
-    "@types/jszip": "^3.4.0",
-    "jszip": "^3.10.1",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
