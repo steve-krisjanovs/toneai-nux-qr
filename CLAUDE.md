@@ -1,3 +1,4 @@
+<!-- parent: librarian -->
 # toneai-nux-qr — Claude Code Context
 
 ## What this is
